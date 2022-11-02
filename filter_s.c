@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <dirent.h>
 #include "filter_s.h"
 
 #define STB_IMAGE_IMPLEMENTATION
@@ -16,50 +17,93 @@ int main(int argc, char *argv[])
 {
     // program should accept arguments for <inputfolder> <outputfolder> <filterwidth>
     // read some text file in the folder to indicate how many images it contains
-    
-    int cols, rows, channels;
-    int size = 5;
-    int sd2 = (size-1)/2;
-    
 
-    unsigned char *img = stbi_load("test.png", &cols, &rows, &channels, 0);
-    
-    int col_offset = sd2*channels;
-    printf("%d %d\n",col_offset, (cols*channels)+col_offset);
-
-    // now we add a block to test if the image loaded any data in
-    if(img == NULL)
+    if (argc < 4)
     {
-        printf("some error warning");
+        printf("You have not entered the correct number of arguments %d", argc);
         exit(1);
     }
-    
-    printf("image loaded sucessfully\n");
 
-    //stbi_write_png("img.png", cols, rows, channels, img, cols * channels);
-    unsigned char * img_in = pad_image(img, cols, rows, channels, size);
-    unsigned char * img_out = (unsigned char*)malloc((cols*rows*channels)*sizeof(unsigned char));
+    DIR * inputfolder;
+    DIR * outputfolder;
+    struct dirent * entry;
 
-    for(int i = sd2; i < rows+sd2; ++i)
+    inputfolder = opendir(argv[1]);
+    outputfolder = opendir(argv[2]);
+
+    if(inputfolder == NULL)
     {
-        for(int j = col_offset; j < (cols*channels)+col_offset; j += channels)
+        puts("Input directory does not exist"); 
+        exit(1);
+    }
+
+    if(outputfolder == NULL)
+    {
+        puts("Output directory does not exist");
+        exit(1);
+    }
+    closedir(outputfolder); 
+
+    while( (entry=readdir(inputfolder)) )
+    {
+        if ( !strcmp(entry->d_name, ".") || !strcmp(entry->d_name, "..") )
         {
-            find_median(img_in,img_out,i,j,channels,size,sd2,col_offset,(cols*channels));
+
+        }
+        else 
+        {
+            char inbuf[1024];
+            char outbuf[1024];
+            sprintf (inbuf, "%s/%s", argv[1], entry->d_name);
+            sprintf (outbuf, "%s/%s", argv[2], entry->d_name);
+
+            int cols, rows, channels;
+            int size;
+            sscanf (argv[3],"%d",&size);
+            int sd2 = (size-1)/2;
+            
+            unsigned char *img = stbi_load(inbuf, &cols, &rows, &channels, 0);
+            
+            int col_offset = sd2*channels;
+            printf("%d %d\n",col_offset, (cols*channels)+col_offset);
+
+            // now we add a block to test if the image loaded any data in
+            if(img == NULL)
+            {
+                printf("This image does not exist");
+                exit(1);
+            }
+            
+            printf("image loaded sucessfully\n");
+
+            //stbi_write_png("img.png", cols, rows, channels, img, cols * channels);
+            unsigned char * img_in = pad_image(img, cols, rows, channels, size);
+            unsigned char * img_out = (unsigned char*)malloc((cols*rows*channels)*sizeof(unsigned char));
+
+            for(int i = sd2; i < rows+sd2; ++i)
+            {
+                for(int j = col_offset; j < (cols*channels)+col_offset; j += channels)
+                {
+                    find_median(img_in,img_out,i,j,channels,size,sd2,col_offset,(cols*channels));
+                }
+            }
+
+            if(img_out == NULL)
+            {
+                printf("Unable to apply filter to image");
+                exit(1);
+            }
+
+            stbi_write_png(outbuf, cols, rows, channels, img_out, cols * channels);
+
+            //strcat(strcat(argv[2], "/"), entry->d_name)
+            stbi_image_free(img);
+            free(img_in);
+            free(img_out);
         }
     }
 
-    if(img_out == NULL)
-    {
-        printf("some error warning");
-        exit(1);
-    }
-
-    stbi_write_png("t_filt.png", cols, rows, channels, img_out, cols * channels);
-
-    
-    stbi_image_free(img);
-    free(img_in);
-    free(img_out);
+    closedir(inputfolder); 
 
     exit(0);
 }
