@@ -15,11 +15,10 @@ parFold = sys.argv[2]
 incorrectOut = False
 
 for images in os.listdir(folder_dir + "/" + serFold):
- 
     # check if the image ends with png
     if (images.endswith(".png")):
 
-        original = cv2.imread(images)
+        original = cv2.imread(serFold + "/" + images)
         duplicate = cv2.imread(parFold + "/" + images)
 
         # 1) Check if 2 images are equals

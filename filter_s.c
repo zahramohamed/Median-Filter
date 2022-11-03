@@ -5,6 +5,8 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <dirent.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 #include "filter_s.h"
 #include <time.h>
 
@@ -27,11 +29,9 @@ int main(int argc, char *argv[])
     }
 
     DIR * inputfolder;
-    DIR * outputfolder;
     struct dirent * entry;
 
     inputfolder = opendir(argv[1]);
-    outputfolder = opendir(argv[2]);
 
     if(inputfolder == NULL)
     {
@@ -39,12 +39,11 @@ int main(int argc, char *argv[])
         exit(1);
     }
 
-    if(outputfolder == NULL)
+    struct stat st = {0};
+    if (stat(argv[2], &st) == -1) 
     {
-        puts("Output directory does not exist");
-        exit(1);
+        mkdir(argv[2], 0700);
     }
-    closedir(outputfolder); 
 
     int n = 0;
     if (argc == 5) 

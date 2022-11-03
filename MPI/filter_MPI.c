@@ -25,16 +25,19 @@ int main(int argc, char *argv[])
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &world);
 
-    // Only root does this error checking
-    if (rank == 0)
-    { 
-        // program should accept arguments for <inputfolder> <outputfolder> <filterwidth>
-        if (argc < 4)
-        {
+    // Timing the parallel program
+    MPI_Barrier(MPI_COMM_WORLD);
+    timer -= MPI_Wtime();
+
+    // program should accept arguments for <inputfolder> <outputfolder> <filterwidth>
+    if (argc < 4)
+    {
+        if (rank == 0)
+        { 
             printf("You have not entered the correct number of arguments %d", argc);
-            MPI_Finalize();
-            exit(1);
         }
+        MPI_Finalize();
+        return(0);
     }
 
     DIR * inputfolder;
@@ -42,26 +45,26 @@ int main(int argc, char *argv[])
     struct dirent * entry;
 
     inputfolder = opendir(argv[1]);
+    outputfolder = opendir(argv[2]);
 
-    // Only root does this error checking
-    if (rank == 0)
+    if(inputfolder == NULL)
     {
-        outputfolder = opendir(argv[2]);
-
-        if(inputfolder == NULL)
+        if (rank == 0)
         {
             puts("Input directory does not exist"); 
-            MPI_Finalize();
-            exit(1);
         }
+        MPI_Finalize();
+        return(0);
+    }
 
-        if(outputfolder == NULL)
+    if(outputfolder == NULL)
+    {
+        if (rank == 0)
         {
             puts("Output directory does not exist");
-            MPI_Finalize();
-            exit(1);
         }
-        closedir(outputfolder);
+        MPI_Finalize();
+        return(0);
     }
 
     int n;
@@ -85,10 +88,6 @@ int main(int argc, char *argv[])
     int j = 0;
     char inbuf[1024];
     char outbuf[1024];
-
-    // Timing the parallel program
-    MPI_Barrier(MPI_COMM_WORLD);
-    timer -= MPI_Wtime();
 
     // Filter the images in the range allocated to the process
     while( (entry=readdir(inputfolder)))
