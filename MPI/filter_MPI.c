@@ -1,29 +1,40 @@
-// Median Filter in C - Serial Solution
-// 10/10/22
+// Median Filter in C - MPI Solution
+// 1/11/22
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
 #include <dirent.h>
-#include "filter_s.h"
-#include <time.h>
+#include <mpi.h>
+#include "filter_MPI.h"
 
 #define STB_IMAGE_IMPLEMENTATION
-#include "stb_image/stb_image.h"
+#include "../stb_image/stb_image.h"
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
-#include "stb_image/stb_image_write.h"
+#include "../stb_image/stb_image_write.h"
 
 int main(int argc, char *argv[])
 {
-    // program should accept arguments for <inputfolder> <outputfolder> <filterwidth>
 
-    clock_t timer;
+    double timer = 0.0;
 
-    if (argc < 4)
-    {
-        printf("You have not entered the correct number of arguments %d", argc);
-        exit(1);
+    MPI_Init(NULL, NULL);
+    int rank;
+    int world;
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &world);
+
+    // Only root does this error checking
+    if (rank == 0)
+    { 
+        // program should accept arguments for <inputfolder> <outputfolder> <filterwidth>
+        if (argc < 4)
+        {
+            printf("You have not entered the correct number of arguments %d", argc);
+            MPI_Finalize();
+            exit(1);
+        }
     }
 
     DIR * inputfolder;
@@ -31,101 +42,132 @@ int main(int argc, char *argv[])
     struct dirent * entry;
 
     inputfolder = opendir(argv[1]);
-    outputfolder = opendir(argv[2]);
 
-    if(inputfolder == NULL)
+    // Only root does this error checking
+    if (rank == 0)
     {
-        puts("Input directory does not exist"); 
-        exit(1);
+        outputfolder = opendir(argv[2]);
+
+        if(inputfolder == NULL)
+        {
+            puts("Input directory does not exist"); 
+            MPI_Finalize();
+            exit(1);
+        }
+
+        if(outputfolder == NULL)
+        {
+            puts("Output directory does not exist");
+            MPI_Finalize();
+            exit(1);
+        }
+        closedir(outputfolder);
     }
 
-    if(outputfolder == NULL)
+    int n;
+    if (argc == 4) 
     {
-        puts("Output directory does not exist");
-        exit(1);
-    }
-    closedir(outputfolder); 
+        // Only the root process count the number of files to save some computation time
+        if (rank == 0)
+        {
+            n = num_images(inputfolder);
+        }
+        MPI_Bcast(&n, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
-    int n = 0;
-    if (argc == 5) 
-    {
-        // number of images to filter
+    } else {
         sscanf(argv[4],"%d",&n);
-    } 
+    }
 
-    timer = clock();
+    int my_start = 0, my_end = 0, workload = 0;
+
+    thread_workload(n, world, rank, &my_start, &my_end, &workload);
+
     int j = 0;
+    char inbuf[1024];
+    char outbuf[1024];
 
-    while( (entry=readdir(inputfolder)) )
+    // Timing the parallel program
+    MPI_Barrier(MPI_COMM_WORLD);
+    timer -= MPI_Wtime();
+
+    // Filter the images in the range allocated to the process
+    while( (entry=readdir(inputfolder)))
     {
         if ( !strcmp(entry->d_name, ".") || !strcmp(entry->d_name, "..") )
-        {
-
-        }
+        {}
         else 
         {
-            if ((n != 0) && (j >= n))
+            if ((j >= my_start))
+            {
+                sprintf (inbuf, "%s/%s", argv[1], entry->d_name);
+                sprintf (outbuf, "%s/%s", argv[2], entry->d_name);
+                int cols, rows, channels;
+                int size;
+                sscanf (argv[3],"%d",&size);
+                int sd2 = (size-1)/2;
+
+                unsigned char *img = stbi_load(inbuf, &cols, &rows, &channels, 0);
+                
+                int col_offset = sd2*channels;
+                //printf("%d %d\n",col_offset, (cols*channels)+col_offset);
+
+                // now we add a block to test if the image loaded any data in
+                if(img == NULL)
+                {
+                    printf("some error warning");
+                    exit(1);
+                }
+                
+                //printf("image loaded sucessfully\n");
+
+                //stbi_write_png("img.png", cols, rows, channels, img, cols * channels);
+                unsigned char * img_in = pad_image(img, cols, rows, channels, size);
+                unsigned char * img_out = (unsigned char*)malloc((cols*rows*channels)*sizeof(unsigned char));
+
+                for(int i = sd2; i < rows+sd2; ++i)
+                {
+                    for(int j = col_offset; j < (cols*channels)+col_offset; j += channels)
+                    {
+                        find_median(img_in,img_out,i,j,channels,size,sd2,col_offset,(cols*channels));
+                    }
+                }
+
+                if(img_out == NULL)
+                {
+                    printf("some error warning");
+                    exit(1);
+                }
+
+                stbi_write_png(outbuf, cols, rows, channels, img_out, cols * channels);
+
+                
+                stbi_image_free(img);
+                free(img_in);
+                free(img_out);
+                
+
+            }
+
+            j++;
+
+            if (j >= my_end)
             {
                 break;
             }
-            char inbuf[1024];
-            char outbuf[1024];
-            sprintf (inbuf, "%s/%s", argv[1], entry->d_name);
-            sprintf (outbuf, "%s/%s", argv[2], entry->d_name);
-
-            int cols, rows, channels;
-            int size;
-            sscanf (argv[3],"%d",&size);
-            int sd2 = (size-1)/2;
-            
-            unsigned char *img = stbi_load(inbuf, &cols, &rows, &channels, 0);
-            
-            int col_offset = sd2*channels;
-            printf("%d %d\n",col_offset, (cols*channels)+col_offset);
-
-            // now we add a block to test if the image loaded any data in
-            if(img == NULL)
-            {
-                printf("This image does not exist");
-                exit(1);
-            }
-            
-            printf("image loaded sucessfully\n");
-
-            //stbi_write_png("img.png", cols, rows, channels, img, cols * channels);
-            unsigned char * img_in = pad_image(img, cols, rows, channels, size);
-            unsigned char * img_out = (unsigned char*)malloc((cols*rows*channels)*sizeof(unsigned char));
-
-            for(int i = sd2; i < rows+sd2; ++i)
-            {
-                for(int j = col_offset; j < (cols*channels)+col_offset; j += channels)
-                {
-                    find_median(img_in,img_out,i,j,channels,size,sd2,col_offset,(cols*channels));
-                }
-            }
-
-            if(img_out == NULL)
-            {
-                printf("Unable to apply filter to image");
-                exit(1);
-            }
-
-            stbi_write_png(outbuf, cols, rows, channels, img_out, cols * channels);
-
-            //strcat(strcat(argv[2], "/"), entry->d_name)
-            stbi_image_free(img);
-            free(img_in);
-            free(img_out);
-            j++;
         }
     }
+    closedir(inputfolder);
 
-    closedir(inputfolder); 
+    // Timing the parallel program
+    MPI_Barrier(MPI_COMM_WORLD);
+    timer += MPI_Wtime();
 
-    timer = clock() - timer;
-    double time_taken = ((double)timer)/CLOCKS_PER_SEC; // in seconds
+    MPI_Finalize();
 
-    printf("%f\n", time_taken);
+    if (rank == 0)
+    {
+        printf("%f\n", timer);
+    } 
 
     exit(0);
 }
@@ -303,3 +345,42 @@ unsigned char * pad_image(unsigned char *src_img, int cols, int rows, int channe
     return new_img;
 }
 
+int num_images (DIR * inputfolder)
+{
+    struct dirent * entry;
+    int n = 0;
+    // Count the number of images to be divided among nodes
+    while( (entry=readdir(inputfolder)) )
+    {
+        if ( !strcmp(entry->d_name, ".") || !strcmp(entry->d_name, "..") )
+        {}
+        else 
+        {
+            n++;
+        }
+    }
+    rewinddir(inputfolder);
+
+    return n;
+}
+
+void thread_workload(int n, int p, int rank, int* my_start, int* my_end, int* workload)
+{
+    // Determine the workload of each ran
+    int q = n / p;
+    int r = n % p;
+
+    if (rank < r)
+    {
+        *my_start = rank;
+        *my_end = 1;
+        *workload = 1;
+    } else 
+    {
+        *my_start = r;
+    }
+
+    *my_start += (rank*q);
+    *my_end += (*my_start + q);
+    *workload += q;
+}
