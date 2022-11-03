@@ -1,0 +1,9 @@
+from PIL import Image
+
+image = Image.open('inputImages/00057.png')
+print(f"Original size : {image.size}") # 5464x3640
+
+for i in range (5):
+    dim = (i+1)*256
+    resized = image.resize((dim, dim))
+    resized.save('resizedImages/' + str(dim) + '.png')
